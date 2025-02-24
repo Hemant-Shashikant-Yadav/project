@@ -16,7 +16,6 @@ interface TimerCardProps {
   onToggle: () => void;
   onReset: () => void;
   onDelete: () => void;
-  onEdit: () => void;
 }
 
 export default function TimerCard({
@@ -24,7 +23,6 @@ export default function TimerCard({
   onToggle,
   onReset,
   onDelete,
-  onEdit,
 }: TimerCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -108,14 +106,6 @@ export default function TimerCard({
             android_ripple={{ color: 'rgba(0,0,0,0.1)' }}
           >
             <Ionicons name="refresh" size={24} color={timer.color} />
-          </Pressable>
-
-          <Pressable
-            onPress={onEdit}
-            style={[styles.button, styles.buttonContainer]}
-            android_ripple={{ color: 'rgba(0,0,0,0.1)' }}
-          >
-            <Ionicons name="pencil" size={24} color={timer.color} />
           </Pressable>
 
           <Pressable

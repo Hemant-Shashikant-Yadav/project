@@ -1,44 +1,50 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Timer, CreateTimerInput } from '@/types/timer';
+import { Timer, CreateTimerInput, CompletedTimer } from '@/types/timer';
 import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
 
 interface TimerStore {
   timers: Timer[];
+  completedTimers: CompletedTimer[];
   isLoading: boolean;
   sortBy: 'name' | 'duration' | 'status';
   searchQuery: string;
   addTimer: (input: CreateTimerInput) => Promise<void>;
   removeTimer: (id: string) => Promise<void>;
   clearCompleted: () => Promise<void>;
+  clearHistory: () => Promise<void>;
   deleteAllTimers: () => Promise<void>;
   toggleTimer: (id: string) => Promise<void>;
   resetTimer: (id: string) => Promise<void>;
-  updateTimer: (id: string, updates: Partial<Timer>) => Promise<void>;
   setSortBy: (sortBy: 'name' | 'duration' | 'status') => void;
   setSearchQuery: (query: string) => void;
   loadTimers: () => Promise<void>;
 }
 
 const STORAGE_KEY = '@timers';
+const HISTORY_KEY = '@timer_history';
 let intervalId: NodeJS.Timeout | undefined;
 
 const useTimerStore = create<TimerStore>((set, get) => ({
   timers: [],
+  completedTimers: [],
   isLoading: true,
   sortBy: 'status',
   searchQuery: '',
 
   loadTimers: async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        set({ timers: JSON.parse(stored), isLoading: false });
-      } else {
-        set({ isLoading: false });
-      }
+      const [storedTimers, storedHistory] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEY),
+        AsyncStorage.getItem(HISTORY_KEY),
+      ]);
+
+      const timers = storedTimers ? JSON.parse(storedTimers) : [];
+      const completedTimers = storedHistory ? JSON.parse(storedHistory) : [];
+
+      set({ timers, completedTimers, isLoading: false });
     } catch (error) {
       console.error('Failed to load timers:', error);
       set({ isLoading: false });
@@ -88,6 +94,15 @@ const useTimerStore = create<TimerStore>((set, get) => ({
     }
   },
 
+  clearHistory: async () => {
+    try {
+      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify([]));
+      set({ completedTimers: [] });
+    } catch (error) {
+      console.error('Failed to clear timer history:', error);
+    }
+  },
+
   deleteAllTimers: async () => {
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([]));
@@ -113,27 +128,45 @@ const useTimerStore = create<TimerStore>((set, get) => ({
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(timers));
       set({ timers });
 
-      // Start interval if not running
       if (!intervalId) {
         intervalId = setInterval(async () => {
-          const { timers } = get();
+          const { timers, completedTimers } = get();
           let updated = false;
+          let newCompletedTimers = [...completedTimers];
 
           const newTimers = timers.map(timer => {
             if (timer.isRunning && timer.remainingTime > 0) {
               updated = true;
+              const newRemainingTime = timer.remainingTime - 1;
+              
+              // Check if timer just completed
+              if (newRemainingTime === 0) {
+                newCompletedTimers.unshift({
+                  id: timer.id,
+                  name: timer.name,
+                  description: timer.description,
+                  duration: timer.duration,
+                  color: timer.color,
+                  completedAt: Date.now(),
+                });
+              }
+
               return {
                 ...timer,
-                remainingTime: timer.remainingTime - 1,
-                completedAt: timer.remainingTime === 1 ? Date.now() : undefined,
+                remainingTime: newRemainingTime,
+                completedAt: newRemainingTime === 0 ? Date.now() : undefined,
               };
             }
             return timer;
           });
 
           if (updated) {
-            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newTimers));
-            set({ timers: newTimers });
+            await Promise.all([
+              AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newTimers)),
+              AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(newCompletedTimers)),
+            ]);
+            
+            set({ timers: newTimers, completedTimers: newCompletedTimers });
 
             // Check for completed timers
             newTimers.forEach(timer => {
@@ -149,7 +182,6 @@ const useTimerStore = create<TimerStore>((set, get) => ({
             });
           }
 
-          // Clear interval if no running timers
           if (!newTimers.some(timer => timer.isRunning)) {
             clearInterval(intervalId);
             intervalId = undefined;
@@ -180,22 +212,6 @@ const useTimerStore = create<TimerStore>((set, get) => ({
       set({ timers });
     } catch (error) {
       console.error('Failed to reset timer:', error);
-    }
-  },
-
-  updateTimer: async (id: string, updates: Partial<Timer>) => {
-    try {
-      const timers = get().timers.map(timer => {
-        if (timer.id === id) {
-          return { ...timer, ...updates };
-        }
-        return timer;
-      });
-
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(timers));
-      set({ timers });
-    } catch (error) {
-      console.error('Failed to update timer:', error);
     }
   },
 

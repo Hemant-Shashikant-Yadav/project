@@ -11,6 +11,15 @@ export interface Timer {
   completedAt?: number;
 }
 
+export interface CompletedTimer {
+  id: string;
+  name: string;
+  description?: string;
+  duration: number;
+  color: string;
+  completedAt: number;
+}
+
 export interface CreateTimerInput {
   name: string;
   hours: number;
